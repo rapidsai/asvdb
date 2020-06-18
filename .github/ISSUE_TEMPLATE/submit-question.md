@@ -1,10 +1,9 @@
 ---
 name: Submit question
-about: Ask a general question about ___PROJECT___
+about: Ask a general question about asvdb
 title: "[QST]"
 labels: "? - Needs Triage, question"
-assignees: ''
-
+assignees: ""
 ---
 
 **What is your question?**

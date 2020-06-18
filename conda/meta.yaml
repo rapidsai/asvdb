@@ -1,0 +1,26 @@
+package:
+    name: asvdb
+    version: 0.3.3
+
+source:
+    #git_url: https://github.com/rlratzel/asvdb.git
+    path: ..
+
+build:
+    number: 0
+
+requirements:
+    build:
+        - python
+        - setuptools
+
+    run:
+        - python
+
+test:
+    imports:
+        - asvdb
+
+about:
+    home: https://github.com/rlratzel/asvdb
+    license: Apache 2.0
