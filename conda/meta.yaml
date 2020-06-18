@@ -3,7 +3,7 @@ package:
     version: 0.3.3
 
 source:
-    #git_url: https://github.com/rlratzel/asvdb.git
+    #git_url: https://github.com/rapidsai/asvdb.git
     path: ..
 
 build:
@@ -22,5 +22,5 @@ test:
         - asvdb
 
 about:
-    home: https://github.com/rlratzel/asvdb
+    home: https://github.com/rapidsai/asvdb
     license: Apache 2.0
