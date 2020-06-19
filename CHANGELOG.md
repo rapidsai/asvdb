@@ -1,4 +1,4 @@
-# asvdb 0.0.0 (DD Mon YYYY)
+# asvdb (unreleased)
 
 ## New Features
 
@@ -11,3 +11,7 @@
 ## Bug Fixes
 
 - ...
+
+# asvdb 0.3.3 (19 Jun 2020)
+
+- Initial release
