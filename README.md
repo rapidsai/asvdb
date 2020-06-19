@@ -6,6 +6,8 @@ The `asvdb` CLI can be used for inspecting the contents of a database, creating 
 
 The `asvdb` python library can be used for the same tasks as the CLI, but is intended to be called directly from another application (benchmarking tool, notebook, test code, etc.) and is designed for adding new benchmark results easily.
 
+![asvdb-based benchmarking design diagram](https://docs.google.com/drawings/d/e/2PACX-1vRIxIV02BWh5tbJkF1fL368m0JvepZKqcD0oxYQNIQesgda1qsFo_zlmygRh5unfFOWwsTYGaYgUzmA/pub?w=960&h=720)
+
 ## `asvdb` CLI:
 From the help:
 ```
@@ -63,14 +65,20 @@ old one, mv the new one to the old one's name, etc.)
 ### `asvdb` CLI tool
 - Print the number of results in the database
 ```
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir --exec-once="i=0" --exec="i+=1" --exec-once="print(i)"
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \
+> --exec-once="i=0" \
+> --exec="i+=1" \
+> --exec-once="print(i)"
 2040
 ```
 This uses `--exec-once` to initialize a var `i` to 0, then execute `i+=1` for each row (result), then `--exec-once` to print the final value of `i`. `--exec-once` only executes once as opposed to once-per-row.
 
 - Check which branches are in the database
 ```
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir --exec-once="branches=set()" --exec="branches.add(branch)" --exec-once="print(branches)"
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \
+> --exec-once="branches=set()" \
+> --exec="branches.add(branch)" \
+> --exec-once="print(branches)"
 {'branch-0.14', 'branch-0.15'}
 ```
    or slightly easier using unix tools:
@@ -83,7 +91,8 @@ In the above example, the `sort -u` is used to limit the output to only unique i
 
 - Get the results for a specific benchmark, with specific param values, for all commits
 ```
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \                                                                                                                                                                                                                > --filter="funcName=='bench_algos.bench_pagerank_time' and argNameValuePairs==[('dataset', 'dataset1.csv'), ('arg1', 'False'), ('arg2', 'True')]" \
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \
+> --filter="funcName=='bench_algos.bench_pagerank_time' and argNameValuePairs==[('dataset', 'dataset1.csv'), ('arg1', 'False'), ('arg2', 'True')]" \
 > --print="commitHash, result, unit"
 c29c3e359d1d945ef32b6867809a331f460d3e46 0.08153173069541271 seconds
 8f077b8700cc5d1b4632c429557eaed6057e03a1 0.08153173069541271 seconds
@@ -94,25 +103,35 @@ e5ae3c3fcd1f414dea2be83e0564f09fe3365ea9 0.08153173069541271 seconds
 
 - Get the requirements (dependencies) used for a specific commit
 ```
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir --filter="commitHash=='c29c3e359d1d945ef32b6867809a331f460d3e46'" --print="requirements"|sort -u
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \
+> --filter="commitHash=='c29c3e359d1d945ef32b6867809a331f460d3e46'" \
+> --print="requirements"|sort -u
 {'cudf': '0.14.200528', 'packageA': '0.0.6', 'packageB': '0.9.5'}
 ```
 Even though this is limiting the rows to just one commit (by using the `--filter` action), there are still several results from the various runs done on that commit, hence the `sort -u`
 
 - Change the unit string for specific benchmarks
 ```
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir --filter="funcName=='bench_algos.bench_pagerank_time'" --print=unit|sort -u
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \
+> --filter="funcName=='bench_algos.bench_pagerank_time'" \
+> --print=unit|sort -u
 seconds
 
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir --filter="funcName=='bench_algos.bench_pagerank_time'" --exec="unit='milliseconds'" --write-to=./my_asv_dir
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \
+> --filter="funcName=='bench_algos.bench_pagerank_time'" \
+> --exec="unit='milliseconds'" \
+> --write-to=./my_asv_dir
 
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir --filter="funcName=='bench_algos.bench_pagerank_time'" --print=unit|sort -u
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \
+> --filter="funcName=='bench_algos.bench_pagerank_time'" \
+> --print=unit|sort -u
 milliseconds
 ```
 
 - Read an existing database and create a new database containing only the latest commit from branch-0.14 and branch-0.15
 ```
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir --print="commitTime, branch, commitHash"|sort -u
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./my_asv_dir \
+> --print="commitTime, branch, commitHash"|sort -u
 1591733122000 branch-0.14 da0a9f8e66696a4c6683055bc22c7378b7430041
 1591733228000 branch-0.14 e5ae3c3fcd1f414dea2be83e0564f09fe3365ea9
 1591733272000 branch-0.15 ff154939008654e62b6696cee825dc971c544b5b
@@ -125,7 +144,8 @@ milliseconds
 > --filter="branch in ['branch-0.14', 'branch-0.15'] and commitTime==latest[branch]" \
 > --write-to=./new_asv_dir
 
-(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./new_asv_dir --print="commitTime, branch, commitHash"|sort -u
+(rapids) root@f078ef9f2198:/tmp# asvdb --read-from=./new_asv_dir \
+> --print="commitTime, branch, commitHash"|sort -u
 1591733292000 branch-0.14 c29c3e359d1d945ef32b6867809a331f460d3e46
 1591738722000 branch-0.15 8f077b8700cc5d1b4632c429557eaed6057e03a1
 ```
