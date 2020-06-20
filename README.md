@@ -172,7 +172,7 @@ user@machine> asvdb --read-from=cugraph-e2e \
   \
   --print="'Modifying result for:', commitHash, funcName, osType, pythonVer, cudaVer" \
   \
-  --exec="result=0" \
+  --exec="result=1234567" \
   \
   --write-to=cugraph-e2e
 
