@@ -157,7 +157,7 @@ milliseconds
 ```
 _Note: changing the unit to `milliseconds` here is just to illustrate how `asvdb` can update the database. Not all reporting tools that read from the database may recognize different unit strings._
 
-- Change an individual result in the database, in this case, the latest result for the `pagerank_gpumem` benchmark that was run on `ubuntu-16.04`, python `3.6`, CUDA `10.1`, with a specific arg combination. This example uses individual `--filter` actions to reduce the rows down to the a single row so the `--exec` applies to only one, then it writes the row back to the same database it read from:
+- Change an individual result in the database, in this case, the latest result for `pagerank_gpumem` to the value `1234567` for only the benchmark run on `ubuntu-16.04`, python `3.6`, CUDA `10.1`, with a specific arg combination. This example uses individual `--filter` actions to reduce the rows down to the a single row so the `--exec` applies to only one, then it writes the row back to the same database it read from:
 ```
 user@machine> asvdb --read-from=cugraph-e2e \
   --exec-once="latest=0" \
