@@ -75,7 +75,7 @@ user@machine> asvdb --read-from=./my_asv_dir \
 This uses `--exec-once` to initialize a var `i` to 0, then execute `i+=1` for each row (result), then `--exec-once` to print the final value of `i`. `--exec-once` only executes once as opposed to once-per-row.
 An easier way using shell tools is to just print any key from a row (`funcName` for example) and count the number of lines printed. This works because `--print` is executed for every row, and each row represents one unique result:
 ```
-user@machine> asvdb --read-from=./my_asv_dir --print=funcName | wc -l
+user@machine> asvdb --read-from=./my_asv_dir --print="funcName" | wc -l
 
 2040
 ```
@@ -89,7 +89,7 @@ user@machine> asvdb --read-from=./my_asv_dir \
 
 {'branch-0.14', 'branch-0.15'}
 ```
-   or slightly easier using unix tools:
+   or slightly easier using shell tools:
 ```
 user@machine> asvdb --read-from=./my_asv_dir --print="branch" | sort -u
 
@@ -98,18 +98,33 @@ branch-0.15
 ```
 In the above example, the `sort -u` is used to limit the output to only unique items. As mentioned, `asvdb` actions (except `--exec-once`) operate on every row, so the print expression will be applied to each row, resulting in 2040 prints (one per result).
 
-- Get the results for a specific benchmark, with specific param values, for all commits
+- Get the results for a specific benchmark, with specific param values, for all commits. **This is a quick and easy way to check for a regression right from your shell!**
 ```
 user@machine> asvdb --read-from=./my_asv_dir \
-  --filter="funcName=='bench_algos.bench_pagerank_time' and argNameValuePairs==[('dataset', 'dataset1.csv'), ('arg1', 'False'), ('arg2', 'True')]" \
+  --filter="funcName=='bench_algos.bench_pagerank_time' \
+      and argNameValuePairs==[('dataset', '../datasets/csv/directed/cit-Patents.csv'), ('managed_mem', 'False'), ('pool_allocator', 'True')]" \
   --print="commitHash, result, unit"
 
-c29c3e359d1d945ef32b6867809a331f460d3e46 0.08153173069541271 seconds
-8f077b8700cc5d1b4632c429557eaed6057e03a1 0.08153173069541271 seconds
-ff154939008654e62b6696cee825dc971c544b5b 0.08153173069541271 seconds
-da0a9f8e66696a4c6683055bc22c7378b7430041 0.08153173069541271 seconds
-e5ae3c3fcd1f414dea2be83e0564f09fe3365ea9 0.08153173069541271 seconds
+c29c3e359d1d945ef32b6867809a331f460d3e46 0.09114686909640984 seconds
+8f077b8700cc5d1b4632c429557eaed6057e03a1 0.09145867270462334 seconds
+ff154939008654e62b6696cee825dc971c544b5b 0.08477148889370165 seconds
+da0a9f8e66696a4c6683055bc22c7378b7430041 0.08885913200959392 seconds
+e5ae3c3fcd1f414dea2be83e0564f09fe3365ea9 0.08390960488084279 seconds
 ```
+Using `--exec` actions and some python-fu, `asvdb` itself can even show the regressions:
+```
+user@machine> asvdb --read-from=./my_asv_dir \
+  --exec-once="regressions=[]; prev=0" \
+  --filter="funcName=='bench_algos.bench_pagerank_time' \
+      and argNameValuePairs==[('dataset', '../datasets/csv/directed/cit-Patents.csv'), ('managed_mem', 'False'), ('pool_allocator', 'True')]" \
+  --exec="t=prev; prev=result; d=result-t; regressions=regressions+[(commitHash, d)] if d>0.0001 else regressions" \
+  --exec-once="print('Regressions:\n'+'\n'.join([f'commit: {r[0]} delta: {r[1]}' for r in regressions[1:]]))"
+
+Regressions:
+commit: 8f077b8700cc5d1b4632c429557eaed6057e03a1 delta: 0.00031180360821349284
+commit: da0a9f8e66696a4c6683055bc22c7378b7430041 delta: 0.00408764311589227
+```
+_Note: since `asvdb` reads and writes databases that are (obviously) compatible with [airspeed velocity (ASV)](https://github.com/airspeed-velocity/asv), the `asv` CLI is another excellent option for finding regressions from the command line, as described [here](https://asv.readthedocs.io/en/stable/commands.html#asv-compare)_
 
 - Get the requirements (dependencies) used for a specific commit
 ```
