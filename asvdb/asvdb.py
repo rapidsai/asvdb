@@ -468,11 +468,14 @@ class ASVDb:
 
 
     def __assertDbDirExists(self):
-        if not(path.isdir(self.dbDir)):
-            raise FileNotFoundError(f"{self.dbDir} does not exist or is not a "
-                                    "directory")
         # FIXME: update for support S3 - this method should return True if
         # self.dbDir is a valid S3 URL or a valid path on disk.
+        if self.__isS3URL(self.dbDir):
+            raise NotImplementedError
+        else:
+            if not(path.isdir(self.dbDir)):
+                raise FileNotFoundError(f"{self.dbDir} does not exist or is "
+                                        "not a directory")
 
 
     def __ensureDbDirExists(self):
@@ -480,11 +483,14 @@ class ASVDb:
         # it's valid and exists, but don't try to create it (raise an exception
         # if it does not exist).  For a local file path, create it if it does
         # not exist, like already being done below.
-        if not(path.exists(self.dbDir)):
-            os.mkdir(self.dbDir)
-            # Hack: os.mkdir() seems to return before the filesystem catches up,
-            # so pause before returning to help ensure the dir actually exists
-            time.sleep(0.1)
+        if self.__isS3URL(self.dbDir):
+            raise NotImplementedError
+        else:
+            if not(path.exists(self.dbDir)):
+                os.mkdir(self.dbDir)
+                # Hack: os.mkdir() seems to return before the filesystem catches up,
+                # so pause before returning to help ensure the dir actually exists
+                time.sleep(0.1)
 
 
     def __updateConfFile(self):
@@ -508,7 +514,6 @@ class ASVDb:
                                 + "commit/")
 
         self.__writeJsonDictToFile(d, self.confFilePath)
-
 
 
     def __updateBenchmarkJson(self, benchmarkResult):
