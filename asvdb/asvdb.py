@@ -185,6 +185,8 @@ class ASVDb:
         try:
             self.__getLock(self.dbDir)
             # FIXME: check if confFile exists
+            self.__downloadIfS3()
+
             d = self.__loadJsonDictFromFile(self.confFilePath)
             self.resultsDirName = d.get("results_dir", self.resultsDirName)
             self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
@@ -195,8 +197,11 @@ class ASVDb:
             self.projectName = d.get("project")
             self.commitUrl = d.get("show_commit_url")
 
+            self.__uploadIfS3()
+
         finally:
             self.__releaseLock(self.dbDir)
+            self.__removeLocalS3Copy()
 
 
     def updateConfFile(self):
@@ -208,10 +213,16 @@ class ASVDb:
         self.__ensureDbDirExists()
         try:
             self.__getLock(self.dbDir)
+            self.__downloadIfS3()
+
             if self.__waitForWrite():
                 self.__updateConfFile()
+
+            self.__uploadIfS3()
+
         finally:
             self.__releaseLock(self.dbDir)
+            self.__removeLocalS3Copy()
 
 
     def addResult(self, benchmarkInfo, benchmarkResult):
@@ -223,11 +234,17 @@ class ASVDb:
         self.__ensureDbDirExists()
         try:
             self.__getLock(self.dbDir)
+            self.__downloadIfS3()
+
             if self.__waitForWrite():
                 self.__updateFilesForInfo(benchmarkInfo)
                 self.__updateFilesForResult(benchmarkInfo, benchmarkResult)
+
+            self.__uploadIfS3()
+
         finally:
             self.__releaseLock(self.dbDir)
+            self.__removeLocalS3Copy()
 
 
     def addResults(self, benchmarkInfo, benchmarkResultList):
@@ -239,12 +256,18 @@ class ASVDb:
         self.__ensureDbDirExists()
         try:
             self.__getLock(self.dbDir)
+            self.__downloadIfS3()
+
             if self.__waitForWrite():
                 self.__updateFilesForInfo(benchmarkInfo)
                 for resultObj in benchmarkResultList:
                     self.__updateFilesForResult(benchmarkInfo, resultObj)
+
+            self.__uploadIfS3()
+
         finally:
             self.__releaseLock(self.dbDir)
+            self.__removeLocalS3Copy()
 
 
     def getInfo(self):
@@ -254,9 +277,12 @@ class ASVDb:
         self.__assertDbDirExists()
         try:
             self.__getLock(self.dbDir)
+            self.__downloadIfS3()
             retList = self.__readResults(infoOnly=True)
+
         finally:
             self.__releaseLock(self.dbDir)
+            self.__removeLocalS3Copy()
 
         return retList
 
@@ -271,9 +297,12 @@ class ASVDb:
         self.__assertDbDirExists()
         try:
             self.__getLock(self.dbDir)
+            self.__downloadIfS3()
             retList = self.__readResults(filterByInfoObjs=filterInfoObjList)
+
         finally:
             self.__releaseLock(self.dbDir)
+            self.__removeLocalS3Copy()
 
         return retList
 
@@ -442,9 +471,15 @@ class ASVDb:
         if not(path.isdir(self.dbDir)):
             raise FileNotFoundError(f"{self.dbDir} does not exist or is not a "
                                     "directory")
+        # FIXME: update for support S3 - this method should return True if
+        # self.dbDir is a valid S3 URL or a valid path on disk.
 
 
     def __ensureDbDirExists(self):
+        # FIXME: for S3 support, if self.dbDir is a S3 URL then simply check if
+        # it's valid and exists, but don't try to create it (raise an exception
+        # if it does not exist).  For a local file path, create it if it does
+        # not exist, like already being done below.
         if not(path.exists(self.dbDir)):
             os.mkdir(self.dbDir)
             # Hack: os.mkdir() seems to return before the filesystem catches up,
@@ -747,6 +782,13 @@ class ASVDb:
     # ASVDb private locking methods
     ###########################################################################
     def __getLock(self, dirPath):
+        if self.__isS3URL(dirPath):
+            self.__getS3Lock(dirPath)
+        else:
+            self.__getLocalFileLock(dirPath)
+
+
+    def __getLocalFileLock(self, dirPath):
         """
         Gets a lock on dirPath against other ASVDb instances (in other
         processes, possibily on other machines) using the following technique:
@@ -811,6 +853,13 @@ class ASVDb:
 
 
     def __releaseLock(self, dirPath):
+        if self.__isS3URL(dirPath):
+            self.__releaseS3Lock(dirPath)
+        else:
+            self.__releaseLocalFileLock(dirPath)
+
+
+    def __releaseLocalFileLock(self, dirPath):
         thisLockfile = path.join(dirPath, self.lockfileName)
         if self.debugPrint:
             print(f"Removing lock {thisLockfile}")
@@ -868,12 +917,69 @@ class ASVDb:
                                 | stat.S_IROTH | stat.S_IWOTH))
 
 
+    ###########################################################################
+    # S3 Locking methods
+    ###########################################################################
+    def __getS3Lock(self, url):
+        # FIXME: write this
+        raise NotImplementedError
+
+
+    def __releaseS3Lock(self, url):
+        # FIXME: write this
+        raise NotImplementedError
+
+
+    ###########################################################################
+    # S3 utilities
+    ###########################################################################
+    def __downloadIfS3(self):
+        # self.localS3Copy = tempfile.TemporaryDirectory(...)
+        #
+        # Download bucket contents and unpack in self.localS3Copy.name
+        #
+        # Set all the internal locations to point to the downloaded files:
+        # self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
+        # self.resultsDirPath = path.join(self.localS3Copy.name, self.resultsDirName)
+        # self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
+        return
+
+
+    def __uploadIfS3(self):
+        # The name of the directory can be accessed from self.localS3Copy like
+        # so: self.localS3Copy.name
+        # Tar that up and upload to the S3 URL (self.dbDir)
+        return
+
+
+    def __removeLocalS3Copy(self):
+        # Just do this:
+        # self.localS3Copy.cleanup()
+        # self.localS3Copy = None
+        #
+        # Then set all the internal locations back:
+        #
+        # self.confFilePath = path.join(self.dbDir, self.confFileName)
+        # self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
+        # self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
+        return
+
+
+    ###########################################################################
     def __removeFiles(self, fileList):
         for f in fileList:
             try:
                 os.remove(f)
             except FileNotFoundError:
                 pass
+
+
+    def __isS3URL(self, url):
+        """
+        Returns True if url is a S3 URL, False otherwise.
+        """
+        # FIXME: write this
+        return False
 
 
     def __waitForWrite(self):
