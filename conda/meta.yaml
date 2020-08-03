@@ -21,7 +21,7 @@ requirements:
 
     run:
         - python
-
+        - boto3
 test:
     imports:
         - asvdb
