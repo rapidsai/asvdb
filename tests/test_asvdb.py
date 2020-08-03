@@ -137,10 +137,10 @@ def test_asvDirDNE():
     tmpDir.cleanup()
 
 
-@pytest.mark.parametrize("asvDir", [tempfile.TemporaryDirectory(), "s3://test-bucket")] 
 def test_newBranch():
     from asvdb import ASVDb
 
+    asvDir = tempfile.TemporaryDirectory()
     repo = "somerepo"
     branch1 = "branch1"
     branch2 = "branch2"
@@ -180,12 +180,11 @@ def test_gitExtension():
     asvDir.cleanup()
 
 
-@pytest.mark.parametrize("asvDir", [tempfile.TemporaryDirectory(), "s3://test-bucket")]
+@pytest.mark.parametrize("asvDir", ["local", "s3"])
 def test_concurrency():
     from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
 
-    tmpDir = tempfile.TemporaryDirectory()
-    asvDirName = path.join(tmpDir.name, "dir_that_does_not_exist")
+    asvDirName = path.join(asvDir, "dir_that_does_not_exist")
     repo = "somerepo"
     branch1 = "branch1"
 
@@ -234,7 +233,7 @@ def test_concurrency():
 
     tmpDir.cleanup()
 
-
+@pytest.mark.parametrize("asvDir", ["local", "s3"])
 def test_concurrency_stress():
     from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
 
