@@ -957,10 +957,10 @@ class ASVDb:
                 debugCounter += 1
                 if self.debugPrint:
                     print(f"This lock file will be {thisLockfile} but other "
-                          f"locks present: {otherLocks}, waiting to try to "
+                          f"locks present: {otherLockfileTimes}, waiting to try to "
                           "lock again...")
                 time.sleep(2)
-                otherLockfileTimes = self.__updateOtherLockfileTimes()
+                otherLockfileTimes = self.__updateS3LockfileTimes()
                 if debugCounter >= 10:
                     raise Exception("Aborted due to possible infinite loop")
 
@@ -994,7 +994,7 @@ class ASVDb:
             Prefix=self.lockfilePrefix,
             StartAfter=self.bucketKey
         )["Contents"]
-        
+
         return response
 
 
@@ -1015,7 +1015,7 @@ class ASVDb:
         if results == False:
             self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt))
                 .download_file(path.join(self.localS3Copy.name, confFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExtt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt))
                 .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
             self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, machineFileExt))
                 .download_file(path.join(self.localS3Copy.name, machineFileExt))    
