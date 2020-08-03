@@ -1013,20 +1013,20 @@ class ASVDb:
 
         # If results isn't set, only download key files, else download key files and results
         if results == False:
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, fileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt))
                 .download_file(path.join(self.localS3Copy.name, confFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, fileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExtt))
                 .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, fileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, machineFileExt))
                 .download_file(path.join(self.localS3Copy.name, machineFileExt))    
         else:
             bucket = self.s3Resource.Bucket(self.bucketName)
             resultsPath = path.join(self.bucketKey, self.defaultResultsDirName, "*")
             localResultsPath = path.join(self.localS3Copy.name, results)
 
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, fileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt))
                 .download_file(path.join(self.localS3Copy.name, confFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, fileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt))
                 .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
             
             for object in bucket.objects.filter(Prefix=resultsPath):
