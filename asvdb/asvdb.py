@@ -1063,7 +1063,7 @@ class ASVDb:
         """
         Returns True if url is a S3 URL, False otherwise.
         """
-        if url.startswith("s3://"):
+        if url.startswith("s3:"):
             return True
 
         return False
