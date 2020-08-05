@@ -2,6 +2,7 @@ import json
 import os
 from os import path
 from pathlib import Path
+import tempfile
 import itertools
 import glob
 import time
@@ -483,7 +484,7 @@ class ASVDb:
         # FIXME: update for support S3 - this method should return True if
         # self.dbDir is a valid S3 URL or a valid path on disk.
         if self.__isS3URL(self.dbDir):
-            self.s3Resource.Object(self.bucketName, self.bucketKey).load()
+            self.s3Resource.Bucket(self.bucketName).objects
         else:
             if not(path.isdir(self.dbDir)):
                 raise FileNotFoundError(f"{self.dbDir} does not exist or is "
@@ -496,7 +497,7 @@ class ASVDb:
         # if it does not exist).  For a local file path, create it if it does
         # not exist, like already being done below.
         if self.__isS3URL(self.dbDir):
-            self.s3Resource.Object(self.bucketName, self.bucketKey).load()
+            self.s3Resource.Bucket(self.bucketName).objects
         else:
             if not(path.exists(self.dbDir)):
                 os.mkdir(self.dbDir)
@@ -942,16 +943,22 @@ class ASVDb:
         # FIXME: This shouldn't be needed? But if so, be smarter about
         # preventing an infintite loop?
         i = 0
-        otherLockfileTimes = []
+
+        # otherLockfileTimes is a tuple representing (<List of lockfiles>, <Length of List>)
+        otherLockfileTimes = ([], 0)
         while i < 1000:
             otherLockfileTimes = self.__updateS3LockfileTimes()
             debugCounter = 0
 
-            while otherLockfileTimes:
+            while otherLockfileTimes[1] != 0:
                 debugCounter += 1
                 if self.debugPrint:
+                    lockfileList = [] 
+                    for each in otherLockfileTimes[0]:
+                        lockfileList.append(each.key)
+
                     print(f"This lock file will be {thisLockfile} but other "
-                          f"locks present: {otherLockfileTimes}, waiting to try to "
+                          f"locks present: {lockfileList}, waiting to try to "
                           "lock again...")
                 time.sleep(2)
                 otherLockfileTimes = self.__updateS3LockfileTimes()
@@ -967,7 +974,7 @@ class ASVDb:
             # while creating the lock for this instance.
             otherLockfileTimes = self.__updateS3LockfileTimes()
             
-            if otherLockfileTimes:
+            if otherLockfileTimes[1] != 0:
                 self.__releaseS3Lock()
                 randTime = (int(10 * random.random()) + 2) + random.random()
                 if self.debugPrint:
@@ -983,13 +990,20 @@ class ASVDb:
             
     def __updateS3LockfileTimes(self):
         # Find lockfiles in S3 Bucket
-        response = self.s3Resource.list_objects_v2( \
-            Bucket=self.bucketName, \
-            Prefix=self.lockfilePrefix, \
-            StartAfter=self.bucketKey \
-        )["Contents"]
+        response = self.s3Resource.Bucket(self.bucketName).objects \
+            .filter(Prefix=path.join(self.bucketKey, self.lockfilePrefix))
 
-        return response
+        length = 0
+        for lockfile in response:
+            length += 1
+            if self.lockfileName in lockfile.key:
+                lockfile.delete()
+                length -= 1
+
+        if self.debugPrint:
+            print(response)
+
+        return (response, length)
 
 
     def __releaseS3Lock(self):
@@ -1008,21 +1022,21 @@ class ASVDb:
 
             # If results isn't set, only download key files, else download key files and results
             if results == False:
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, confFileExt))
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, machineFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, machineFileExt))    
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.confFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, self.confFileExt))
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.benchmarksFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, self.benchmarksFileExt))
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.machineFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, self.machineFileExt))    
             else:
                 bucket = self.s3Resource.Bucket(self.bucketName)
                 resultsPath = path.join(self.bucketKey, self.defaultResultsDirName, "*")
                 localResultsPath = path.join(self.localS3Copy.name, results)
 
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, confFileExt))
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.confFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, self.confFileExt))
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.benchmarksFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, self.benchmarksFileExt))
                 
                 for object in bucket.objects.filter(Prefix=resultsPath):
                     bucket.download_file(object.key, path.join(localResultsPath, object.key))
