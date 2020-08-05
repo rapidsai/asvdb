@@ -983,10 +983,10 @@ class ASVDb:
             
     def __updateS3LockfileTimes(self):
         # Find lockfiles in S3 Bucket
-        response = self.s3Resource.list_objects_v2(
-            Bucket=self.bucketName,
-            Prefix=self.lockfilePrefix,
-            StartAfter=self.bucketKey
+        response = self.s3Resource.list_objects_v2( \
+            Bucket=self.bucketName, \
+            Prefix=self.lockfilePrefix, \
+            StartAfter=self.bucketKey \
         )["Contents"]
 
         return response
@@ -1007,20 +1007,20 @@ class ASVDb:
 
         # If results isn't set, only download key files, else download key files and results
         if results == False:
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt)) \
                 .download_file(path.join(self.localS3Copy.name, confFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt)) \
                 .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, machineFileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, machineFileExt)) \
                 .download_file(path.join(self.localS3Copy.name, machineFileExt))    
         else:
             bucket = self.s3Resource.Bucket(self.bucketName)
             resultsPath = path.join(self.bucketKey, self.defaultResultsDirName, "*")
             localResultsPath = path.join(self.localS3Copy.name, results)
 
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt)) \
                 .download_file(path.join(self.localS3Copy.name, confFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt))
+            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt)) \
                 .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
             
             for object in bucket.objects.filter(Prefix=resultsPath):
@@ -1037,7 +1037,7 @@ class ASVDb:
         # so: self.localS3Copy.name
         for root, dirs, files in os.walk(self.localS3Copy.name)
             for name in files:
-                self.s3Resource.Object(self.bucketName, self.bucketKey)
+                self.s3Resource.Object(self.bucketName, self.bucketKey) \
                     .upload_file(path.join(self.localS3Copy.name, root, name))
 
 
