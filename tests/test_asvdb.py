@@ -5,6 +5,7 @@ import threading
 import time
 
 import pytest
+import boto
 
 datasetName = "dolphins.csv"
 algoRunResults = [('loadDataFile', 3.2228727098554373),
@@ -180,11 +181,11 @@ def test_gitExtension():
     asvDir.cleanup()
 
 
-@pytest.mark.parametrize("asvDir", ["local", "s3"])
 def test_concurrency():
     from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
 
-    asvDirName = path.join(asvDir, "dir_that_does_not_exist")
+    tmpDir = tempfile.TemporaryDirectory()
+    asvDirName = path.join(tmpDir.name, "dir_that_does_not_exist")
     repo = "somerepo"
     branch1 = "branch1"
 
@@ -233,7 +234,6 @@ def test_concurrency():
 
     tmpDir.cleanup()
 
-@pytest.mark.parametrize("asvDir", ["local", "s3"])
 def test_concurrency_stress():
     from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
 
@@ -276,6 +276,104 @@ def test_concurrency_stress():
     assert sorted(allFuncNames) == sorted(allFuncNamesCheck)
 
     tmpDir.cleanup()
+
+
+def test_s3_concurrency():
+    from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
+
+    asvDirName = "s3://gpuci-cache-testing/asvdb"
+    repo = "somerepo"
+    branch1 = "branch1"
+
+    db1 = ASVDb(asvDirName, repo, [branch1])
+    db2 = ASVDb(asvDirName, repo, [branch1])
+    db3 = ASVDb(asvDirName, repo, [branch1])
+    # Use the writeDelay member var to insert a delay during write to properly
+    # test collisions by making writes slow.
+    db1.writeDelay = 10
+    db2.writeDelay = 10
+
+    bInfo = BenchmarkInfo()
+    bResult1 = BenchmarkResult(funcName="somebenchmark1", result=43)
+    bResult2 = BenchmarkResult(funcName="somebenchmark2", result=43)
+    bResult3 = BenchmarkResult(funcName="somebenchmark3", result=43)
+
+    # db1 or db2 should be actively writing the result (because the writeDelay is long)
+    # and db3 should be blocked.
+    t1 = threading.Thread(target=db1.addResult, args=(bInfo, bResult1))
+    t2 = threading.Thread(target=db2.addResult, args=(bInfo, bResult2))
+    t3 = threading.Thread(target=db3.addResult, args=(bInfo, bResult3))
+    t1.start()
+    t2.start()
+    time.sleep(0.5)  # ensure t3 tries to write last
+    t3.start()
+
+    # Check that db3 is blocked - if locking wasn't working, it would have
+    # finished since it has no writeDelay.
+    t3.join(timeout=0.5)
+    assert t3.is_alive() is True
+
+    # Cancel db1 and db2, allowing db3 to write and finish
+    db1.cancelWrite = True
+    db2.cancelWrite = True
+    t3.join(timeout=11)
+    assert t3.is_alive() is False
+    t1.join()
+    t2.join()
+    t3.join()
+
+    # Check that db3 wrote its result
+    db3.__downloadIfS3()
+    with open(db3.benchmarksFilePath) as fobj:
+        jo = json.load(fobj)
+        assert "somebenchmark3" in jo
+
+    db3.__removeLocalS3Copy()
+    db3.s3Resource.Bucket(db3.bucketName).objects.filter(Prefix="asv/").delete()
+
+
+def test_s3_concurrency_stress():
+    from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
+
+    asvDirName = "s3://gpuci-cache-testing/asvdb"
+    repo = "somerepo"
+    branch1 = "branch1"
+    num = 32
+    dbs = []
+    threads = []
+    allFuncNames = []
+
+    bInfo = BenchmarkInfo(machineName=machineName)
+
+    for i in range(num):
+        db = ASVDb(asvDirName, repo, [branch1])
+        db.writeDelay=0.5
+        dbs.append(db)
+
+        funcName = f"somebenchmark{i}"
+        bResult = BenchmarkResult(funcName=funcName, result=43)
+        allFuncNames.append(funcName)
+
+        t = threading.Thread(target=db.addResult, args=(bInfo, bResult))
+        threads.append(t)
+
+    for i in range(num):
+        threads[i].start()
+
+    for i in range(num):
+        threads[i].join()
+
+    # There should be num unique results in the db after (re)reading.  Pick any
+    # of the db instances to read, they should all see the same results.
+    results = dbs[0].getResults()
+    assert len(results[0][1]) == num
+
+    # Simply check that all unique func names were read back in.
+    allFuncNamesCheck = [r.funcName for r in results[0][1]]
+    assert sorted(allFuncNames) == sorted(allFuncNamesCheck)
+
+    db3.s3Resource.Bucket(db3.bucketName).objects.filter(Prefix="asv/").delete()
+
 
 
 def test_read():
@@ -357,3 +455,4 @@ def test_getFilteredResults():
     assert brList1[0][0] != brList1[1][0]
     assert len(brList1[0][1]) == len(algoRunResults)
     assert len(brList1[1][1]) == len(algoRunResults)
+    
