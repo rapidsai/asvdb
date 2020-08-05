@@ -1003,33 +1003,34 @@ class ASVDb:
     # S3 utilities
     ###########################################################################
     def __downloadIfS3(self, results=False):
-        self.localS3Copy = tempfile.TemporaryDirectory(suffix="asv")
+        if self.__isS3URL(self.dbDir):
+            self.localS3Copy = tempfile.TemporaryDirectory(suffix="asv")
 
-        # If results isn't set, only download key files, else download key files and results
-        if results == False:
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt)) \
-                .download_file(path.join(self.localS3Copy.name, confFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt)) \
-                .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, machineFileExt)) \
-                .download_file(path.join(self.localS3Copy.name, machineFileExt))    
-        else:
-            bucket = self.s3Resource.Bucket(self.bucketName)
-            resultsPath = path.join(self.bucketKey, self.defaultResultsDirName, "*")
-            localResultsPath = path.join(self.localS3Copy.name, results)
+            # If results isn't set, only download key files, else download key files and results
+            if results == False:
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, confFileExt))
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, machineFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, machineFileExt))    
+            else:
+                bucket = self.s3Resource.Bucket(self.bucketName)
+                resultsPath = path.join(self.bucketKey, self.defaultResultsDirName, "*")
+                localResultsPath = path.join(self.localS3Copy.name, results)
 
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt)) \
-                .download_file(path.join(self.localS3Copy.name, confFileExt))
-            self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt)) \
-                .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, confFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, confFileExt))
+                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, benchmarksFileExt)) \
+                    .download_file(path.join(self.localS3Copy.name, benchmarksFileExt))
+                
+                for object in bucket.objects.filter(Prefix=resultsPath):
+                    bucket.download_file(object.key, path.join(localResultsPath, object.key))
             
-            for object in bucket.objects.filter(Prefix=resultsPath):
-                bucket.download_file(object.key, path.join(localResultsPath, object.key))
-        
-        # Set all the internal locations to point to the downloaded files:
-        self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
-        self.resultsDirPath = path.join(self.localS3Copy.name, self.resultsDirName)
-        self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
+            # Set all the internal locations to point to the downloaded files:
+            self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
+            self.resultsDirPath = path.join(self.localS3Copy.name, self.resultsDirName)
+            self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
 
 
     def __uploadIfS3(self):
@@ -1042,12 +1043,13 @@ class ASVDb:
 
 
     def __removeLocalS3Copy(self):
-        self.localS3Copy.cleanup()
-        self.localS3Copy = None
+        if self.__isS3URL(self.dbDir):
+            self.localS3Copy.cleanup()
+            self.localS3Copy = None
 
-        self.confFilePath = path.join(self.dbDir, self.confFileName)
-        self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
-        self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
+            self.confFilePath = path.join(self.dbDir, self.confFileName)
+            self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
+            self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
 
 
     ###########################################################################
