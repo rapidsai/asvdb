@@ -161,7 +161,7 @@ class ASVDb:
         self.resultsDirName = self.defaultResultsDirName
         self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
         self.htmlDirName = self.defaultHtmlDirName
-        self.benchmarksFileExt = path.join(self.defaultResultsDirName, self.benchmarksFiileName)
+        self.benchmarksFileExt = path.join(self.defaultResultsDirName, self.benchmarksFileName)
         self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
 
         # Each ASVDb instance must have a unique lockfile name to identify other
