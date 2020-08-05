@@ -1035,7 +1035,7 @@ class ASVDb:
     def __uploadIfS3(self):
         # The name of the directory can be accessed from self.localS3Copy like
         # so: self.localS3Copy.name
-        for root, dirs, files in os.walk(self.localS3Copy.name)
+        for root, dirs, files in os.walk(self.localS3Copy.name):
             for name in files:
                 self.s3Resource.Object(self.bucketName, self.bucketKey) \
                     .upload_file(path.join(self.localS3Copy.name, root, name))
