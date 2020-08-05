@@ -10,6 +10,7 @@ import random
 import stat
 from urllib.parse import urlparse
 
+from botocore import exceptions
 import boto3
 
 BenchmarkInfoKeys = set([
@@ -1000,9 +1001,6 @@ class ASVDb:
                 lockfile.delete()
                 length -= 1
 
-        if self.debugPrint:
-            print(response)
-
         return (response, length)
 
 
@@ -1017,29 +1015,45 @@ class ASVDb:
     # S3 utilities
     ###########################################################################
     def __downloadIfS3(self, results=False):
+        def downloadS3(bucket, ext):
+            bucket.download_file(
+                path.join(self.bucketKey, ext),
+                path.join(self.localS3Copy.name, ext)
+            )
+
         if self.__isS3URL(self.dbDir):
             self.localS3Copy = tempfile.TemporaryDirectory(suffix="asv")
 
             # If results isn't set, only download key files, else download key files and results
             if results == False:
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.confFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, self.confFileExt))
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.benchmarksFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, self.benchmarksFileExt))
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.machineFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, self.machineFileExt))    
-            else:
-                bucket = self.s3Resource.Bucket(self.bucketName)
-                resultsPath = path.join(self.bucketKey, self.defaultResultsDirName, "*")
-                localResultsPath = path.join(self.localS3Copy.name, results)
+                # Use Try/Except to catch file Not Found errors and continue, avoids additional API calls
+                try:
+                    bucket = self.s3Resource.Bucket(self.bucketName)
+                    downloadS3(bucket, self.confFileExt)
+                    downloadS3(bucket, self.machineFileExt)
+                    downloadS3(bucket, self.benchmarksFileExt)
+                except exceptions.ClientError as e:
+                    err = "Not Found"
+                    if err not in e.response["Error"]["Message"]:
+                        raise
 
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.confFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, self.confFileExt))
-                self.s3Resource.Object(self.bucketName, path.join(self.bucketKey, self.benchmarksFileExt)) \
-                    .download_file(path.join(self.localS3Copy.name, self.benchmarksFileExt))
+            else:
+                try:
+                    import pdb; pdb.set_trace()
+                    bucket = self.s3Resource.Bucket(self.bucketName)
+                    resultsPath = path.join(self.bucketKey, self.defaultResultsDirName, "*")
+                    localResultsPath = path.join(self.localS3Copy.name, self.defaultResultsDirName)
+                    
+                    downloadS3(bucket, self.confFileExt)
+                    downloadS3(bucket, self.benchmarksFileExt)
+                    
+                    for object in bucket.objects.filter(Prefix=resultsPath):
+                        bucket.download_file(object.key, path.join(localResultsPath, object.key))
                 
-                for object in bucket.objects.filter(Prefix=resultsPath):
-                    bucket.download_file(object.key, path.join(localResultsPath, object.key))
+                except exceptions.ClientError as e:
+                    err = "Not Found"
+                    if err not in e.response["Error"]["Message"]:
+                        raise e
             
             # Set all the internal locations to point to the downloaded files:
             self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
@@ -1048,14 +1062,32 @@ class ASVDb:
 
 
     def __uploadIfS3(self):
+        def recursiveUpload(base, ext=""):
+            files = []
+            dirs = []
+            dirListing = os.listdir(path.join(base, ext))
+            for entry in dirListing:
+                if path.isdir(path.join(base, ext, entry)):
+                    dirs.append(entry)
+                else:
+                    files.append(entry)
+
+            # Upload files in this folder
+            for name in files:
+                self.s3Resource.Bucket(self.bucketName) \
+                    .upload_file(path.join(base, ext, name), path.join(self.bucketKey, ext, name))
+            
+            # Call upload again for each folder
+            if len(dirs) != 0:
+                for folder in dirs:
+                    ext = path.join(ext, folder)
+                    recursiveUpload(base, ext)
+
         # The name of the directory can be accessed from self.localS3Copy like
         # so: self.localS3Copy.name
         if self.__isS3URL(self.dbDir):
-            for root, dirs, files in os.walk(self.localS3Copy.name):
-                for name in files:
-                    self.s3Resource.Object(self.bucketName, self.bucketKey) \
-                        .upload_file(path.join(self.localS3Copy.name, root, name))
-
+            recursiveUpload(self.localS3Copy.name)
+                
 
     def __removeLocalS3Copy(self):
         if self.__isS3URL(self.dbDir):

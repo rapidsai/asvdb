@@ -1,4 +1,5 @@
 from os import path
+import os
 import tempfile
 import json
 import threading
@@ -281,7 +282,11 @@ def test_concurrency_stress():
 def test_s3_concurrency():
     from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
 
+    tmpDir = tempfile.TemporaryDirectory(suffix='asv')
     asvDirName = "s3://gpuci-cache-testing/asvdb"
+    resource = boto3.resource('s3')
+    bucketName = "gpuci-cache-testing"
+    benchmarkKey = "asvdb/results/benchmarks.json"
     repo = "somerepo"
     branch1 = "branch1"
 
@@ -323,19 +328,21 @@ def test_s3_concurrency():
     t3.join()
 
     # Check that db3 wrote its result
-    db3.__downloadIfS3()
-    with open(db3.benchmarksFilePath) as fobj:
+    os.makedirs(path.join(tmpDir.name, "asvdb/results"))
+    resource.Bucket(bucketName).download_file(benchmarkKey, path.join(tmpDir.name, benchmarkKey))
+    with open(path.join(tmpDir.name, benchmarkKey)) as fobj:
         jo = json.load(fobj)
         assert "somebenchmark3" in jo
 
-    db3.__removeLocalS3Copy()
-    db3.s3Resource.Bucket(db3.bucketName).objects.filter(Prefix="asv/").delete()
+    tmpDir.cleanup()
+    db3.s3Resource.Bucket(db3.bucketName).objects.filter(Prefix="asvdb/").delete()
 
 
 def test_s3_concurrency_stress():
     from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
 
     asvDirName = "s3://gpuci-cache-testing/asvdb"
+    bucketName = "gpuci-cache-testing"
     repo = "somerepo"
     branch1 = "branch1"
     num = 32
