@@ -170,7 +170,7 @@ class ASVDb:
         self.lockfileTimeout = 5  # seconds
 
         # S3-related attributes
-        if self.__isS3URL():
+        if self.__isS3URL(dbDir):
             self.s3Resource = boto3.resource("s3")
             self.bucketName = urlparse(self.dbDir, allow_fragments=False).netloc
             self.bucketKey = urlparse(self.dbDir, allow_fragments=False).path.lstrip('/')
@@ -483,10 +483,7 @@ class ASVDb:
         # FIXME: update for support S3 - this method should return True if
         # self.dbDir is a valid S3 URL or a valid path on disk.
         if self.__isS3URL(self.dbDir):
-            try:
-                self.s3Resource.Object(self.bucketName, self.bucketKey).load()
-            except botocore.exceptions.ClientError as e:
-                raise Exception(e)
+            self.s3Resource.Object(self.bucketName, self.bucketKey).load()
         else:
             if not(path.isdir(self.dbDir)):
                 raise FileNotFoundError(f"{self.dbDir} does not exist or is "
@@ -499,10 +496,7 @@ class ASVDb:
         # if it does not exist).  For a local file path, create it if it does
         # not exist, like already being done below.
         if self.__isS3URL(self.dbDir):
-            try:
-                self.s3Resource.Object(self.bucketName, self.bucketKey).load()
-            except botocore.exceptions.ClientError as e:
-                raise Exception(e)
+            self.s3Resource.Object(self.bucketName, self.bucketKey).load()
         else:
             if not(path.exists(self.dbDir)):
                 os.mkdir(self.dbDir)
