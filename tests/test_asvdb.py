@@ -5,7 +5,7 @@ import threading
 import time
 
 import pytest
-import boto
+import boto3
 
 datasetName = "dolphins.csv"
 algoRunResults = [('loadDataFile', 3.2228727098554373),
