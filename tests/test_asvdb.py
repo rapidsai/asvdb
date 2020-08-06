@@ -350,10 +350,11 @@ def test_s3_concurrency_stress():
     threads = []
     allFuncNames = []
 
-    bInfo = BenchmarkInfo(machineName=machineName)
+    bInfo = BenchmarkInfo(machineName=machineName, cudaVer="Test", osType="Test", pythonVer="Test", commitHash="Test")
 
     for i in range(num):
         db = ASVDb(asvDirName, repo, [branch1])
+        db.debugPrint = True
         db.writeDelay=0.5
         dbs.append(db)
 
@@ -379,8 +380,7 @@ def test_s3_concurrency_stress():
     allFuncNamesCheck = [r.funcName for r in results[0][1]]
     assert sorted(allFuncNames) == sorted(allFuncNamesCheck)
 
-    db3.s3Resource.Bucket(db3.bucketName).objects.filter(Prefix="asv/").delete()
-
+    boto3.resource("s3").Bucket(bucketName).objects.filter(Prefix="asvdb/").delete()
 
 
 def test_read():

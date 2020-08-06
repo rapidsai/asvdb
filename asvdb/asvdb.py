@@ -248,8 +248,7 @@ class ASVDb:
         self.__ensureDbDirExists()
         try:
             self.__getLock(self.dbDir)
-            self.__downloadIfS3()
-
+            self.__downloadIfS3(bInfo=benchmarkInfo)
             if self.__waitForWrite():
                 self.__updateFilesForInfo(benchmarkInfo)
                 self.__updateFilesForResult(benchmarkInfo, benchmarkResult)
@@ -270,7 +269,7 @@ class ASVDb:
         self.__ensureDbDirExists()
         try:
             self.__getLock(self.dbDir)
-            self.__downloadIfS3()
+            self.__downloadIfS3(bInfo=benchmarkInfo)
 
             if self.__waitForWrite():
                 self.__updateFilesForInfo(benchmarkInfo)
@@ -952,7 +951,6 @@ class ASVDb:
             debugCounter = 0
 
             while otherLockfileTimes[1] != 0:
-                debugCounter += 1
                 if self.debugPrint:
                     lockfileList = [] 
                     for each in otherLockfileTimes[0]:
@@ -961,15 +959,17 @@ class ASVDb:
                     print(f"This lock file will be {thisLockfile} but other "
                           f"locks present: {lockfileList}, waiting to try to "
                           "lock again...")
-                time.sleep(2)
+                
+                time.sleep(1)
                 otherLockfileTimes = self.__updateS3LockfileTimes()
-                if debugCounter >= 10:
-                    raise Exception("Aborted due to possible infinite loop")
 
             # All clear, create lock
             if self.debugPrint:
                 print(f"All clear, setting lock {thisLockfile}")
             self.s3Resource.Object(self.bucketName, thisLockfile).put()
+            
+            #Give S3 time to see the new lock
+            time.sleep(1)
 
             # Check for a race condition where another lock could have been created
             # while creating the lock for this instance.
@@ -977,7 +977,7 @@ class ASVDb:
             
             if otherLockfileTimes[1] != 0:
                 self.__releaseS3Lock()
-                randTime = (int(10 * random.random()) + 2) + random.random()
+                randTime = (int(30 * random.random()) + 5) + random.random()
                 if self.debugPrint:
                     print(f"Collision - waiting {randTime} seconds before "
                           "trying to lock again.")
@@ -986,7 +986,6 @@ class ASVDb:
                 break
 
             i += 1
-
 
             
     def __updateS3LockfileTimes(self):
@@ -1014,7 +1013,7 @@ class ASVDb:
     ###########################################################################
     # S3 utilities
     ###########################################################################
-    def __downloadIfS3(self, results=False):
+    def __downloadIfS3(self, bInfo=BenchmarkInfo(), results=False):
         def downloadS3(bucket, ext):
             bucket.download_file(
                 path.join(self.bucketKey, ext),
@@ -1022,16 +1021,30 @@ class ASVDb:
             )
 
         if self.__isS3URL(self.dbDir):
-            self.localS3Copy = tempfile.TemporaryDirectory(suffix="asv")
-
+            self.localS3Copy = tempfile.TemporaryDirectory()
+            os.makedirs(path.join(self.localS3Copy.name, self.defaultResultsDirName))
+            bucket = self.s3Resource.Bucket(self.bucketName)
             # If results isn't set, only download key files, else download key files and results
             if results == False:
+                keyFileExts = [self.confFileExt, self.machineFileExt, self.benchmarksFileExt]
                 # Use Try/Except to catch file Not Found errors and continue, avoids additional API calls
+                for fileExt in keyFileExts:
+                    try:
+                        downloadS3(bucket, fileExt)
+                    except exceptions.ClientError as e:
+                        err = "Not Found"
+                        if err not in e.response["Error"]["Message"]:
+                            raise
+
+                # Download specific result file for updating results if BenchmarkInfo is sent
                 try:
-                    bucket = self.s3Resource.Bucket(self.bucketName)
-                    downloadS3(bucket, self.confFileExt)
-                    downloadS3(bucket, self.machineFileExt)
-                    downloadS3(bucket, self.benchmarksFileExt)
+                    if bInfo.machineName != "":
+                        commitHash, pyVer, cuVer, osType = bInfo.commitHash, bInfo.pythonVer, bInfo.cudaVer, bInfo.osType
+                        filename = f"{commitHash}-python{pyVer}-cuda{cuVer}-{osType}.json"
+                        os.makedirs(path.join(self.localS3Copy.name, self.defaultResultsDirName, bInfo.machineName), exist_ok=True)
+                        resultFileExt = path.join(self.defaultResultsDirName, bInfo.machineName, filename)
+                        downloadS3(bucket, resultFileExt)
+
                 except exceptions.ClientError as e:
                     err = "Not Found"
                     if err not in e.response["Error"]["Message"]:
@@ -1039,16 +1052,26 @@ class ASVDb:
 
             else:
                 try:
-                    import pdb; pdb.set_trace()
-                    bucket = self.s3Resource.Bucket(self.bucketName)
-                    resultsPath = path.join(self.bucketKey, self.defaultResultsDirName, "*")
-                    localResultsPath = path.join(self.localS3Copy.name, self.defaultResultsDirName)
-                    
                     downloadS3(bucket, self.confFileExt)
-                    downloadS3(bucket, self.benchmarksFileExt)
+                except:
+                    err = "Not Found"
+                    if err not in e.response["Error"]["Message"]:
+                        raise
+
+                try:
+                    resultsBucketPath = path.join(self.bucketKey, self.defaultResultsDirName)
+                    resultsLocalPath = path.join(self.localS3Copy.name, self.defaultResultsDirName)
                     
-                    for object in bucket.objects.filter(Prefix=resultsPath):
-                        bucket.download_file(object.key, path.join(localResultsPath, object.key))
+                    # Loop over ASV results folder and download everything.
+                    # objectExt represents the file extension starting from the base resultsBucketPath
+                    # For example: resultsBucketPath = "asvdb/results"
+                    #            : objectKey = "asvdb/results/machine_name/results.json
+                    #            : objectExt = "machine_name/results.json"
+                    for bucketObj in bucket.objects.filter(Prefix=resultsBucketPath):
+                        objectExt = bucketObj.key.replace(resultsBucketPath + "/", "")
+                        if len(objectExt.split("/")) > 1:
+                            os.makedirs(path.join(resultsLocalPath, objectExt.split("/")[0]), exist_ok=True)
+                        bucket.download_file(bucketObj.key, path.join(resultsLocalPath, objectExt))
                 
                 except exceptions.ClientError as e:
                     err = "Not Found"
@@ -1087,6 +1110,9 @@ class ASVDb:
         # so: self.localS3Copy.name
         if self.__isS3URL(self.dbDir):
             recursiveUpload(self.localS3Copy.name)
+
+        # Give S3 time to see the new uploads before releasing lock
+        time.sleep(1)
                 
 
     def __removeLocalS3Copy(self):
