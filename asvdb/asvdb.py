@@ -1053,7 +1053,7 @@ class ASVDb:
             else:
                 try:
                     downloadS3(bucket, self.confFileExt)
-                except:
+                except exceptions.ClientError as e:
                     err = "Not Found"
                     if err not in e.response["Error"]["Message"]:
                         raise
