@@ -1020,80 +1020,75 @@ class ASVDb:
                 path.join(self.localS3Copy.name, ext)
             )
 
-        if self.__isS3URL(self.dbDir):
-            self.localS3Copy = tempfile.TemporaryDirectory()
-            os.makedirs(path.join(self.localS3Copy.name, self.defaultResultsDirName))
-            bucket = self.s3Resource.Bucket(self.bucketName)
-            # If results isn't set, only download key files, else download key files and results
-            if results == False:
-                keyFileExts = [self.confFileExt, self.machineFileExt, self.benchmarksFileExt]
-                # Use Try/Except to catch file Not Found errors and continue, avoids additional API calls
-                for fileExt in keyFileExts:
-                    try:
-                        downloadS3(bucket, fileExt)
-                    except exceptions.ClientError as e:
-                        err = "Not Found"
-                        if err not in e.response["Error"]["Message"]:
-                            raise
+        if not self.__isS3URL(self.dbDir):
+            return
 
-                # Download specific result file for updating results if BenchmarkInfo is sent
+        self.localS3Copy = tempfile.TemporaryDirectory()
+        os.makedirs(path.join(self.localS3Copy.name, self.defaultResultsDirName))
+        bucket = self.s3Resource.Bucket(self.bucketName)
+        # If results isn't set, only download key files, else download key files and results
+        if results == False:
+            keyFileExts = [self.confFileExt, self.machineFileExt, self.benchmarksFileExt]
+            # Use Try/Except to catch file Not Found errors and continue, avoids additional API calls
+            for fileExt in keyFileExts:
                 try:
-                    if bInfo.machineName != "":
-                        commitHash, pyVer, cuVer, osType = bInfo.commitHash, bInfo.pythonVer, bInfo.cudaVer, bInfo.osType
-                        filename = f"{commitHash}-python{pyVer}-cuda{cuVer}-{osType}.json"
-                        os.makedirs(path.join(self.localS3Copy.name, self.defaultResultsDirName, bInfo.machineName), exist_ok=True)
-                        resultFileExt = path.join(self.defaultResultsDirName, bInfo.machineName, filename)
-                        downloadS3(bucket, resultFileExt)
-
+                    downloadS3(bucket, fileExt)
                 except exceptions.ClientError as e:
                     err = "Not Found"
                     if err not in e.response["Error"]["Message"]:
                         raise
 
-            else:
-                try:
-                    downloadS3(bucket, self.confFileExt)
-                except:
-                    err = "Not Found"
-                    if err not in e.response["Error"]["Message"]:
-                        raise
+            # Download specific result file for updating results if BenchmarkInfo is sent
+            try:
+                if bInfo.machineName != "":
+                    commitHash, pyVer, cuVer, osType = bInfo.commitHash, bInfo.pythonVer, bInfo.cudaVer, bInfo.osType
+                    filename = f"{commitHash}-python{pyVer}-cuda{cuVer}-{osType}.json"
+                    os.makedirs(path.join(self.localS3Copy.name, self.defaultResultsDirName, bInfo.machineName), exist_ok=True)
+                    resultFileExt = path.join(self.defaultResultsDirName, bInfo.machineName, filename)
+                    downloadS3(bucket, resultFileExt)
 
-                try:
-                    resultsBucketPath = path.join(self.bucketKey, self.defaultResultsDirName)
-                    resultsLocalPath = path.join(self.localS3Copy.name, self.defaultResultsDirName)
-                    
-                    # Loop over ASV results folder and download everything.
-                    # objectExt represents the file extension starting from the base resultsBucketPath
-                    # For example: resultsBucketPath = "asvdb/results"
-                    #            : objectKey = "asvdb/results/machine_name/results.json
-                    #            : objectExt = "machine_name/results.json"
-                    for bucketObj in bucket.objects.filter(Prefix=resultsBucketPath):
-                        objectExt = bucketObj.key.replace(resultsBucketPath + "/", "")
-                        if len(objectExt.split("/")) > 1:
-                            os.makedirs(path.join(resultsLocalPath, objectExt.split("/")[0]), exist_ok=True)
-                        bucket.download_file(bucketObj.key, path.join(resultsLocalPath, objectExt))
+            except exceptions.ClientError as e:
+                err = "Not Found"
+                if err not in e.response["Error"]["Message"]:
+                    raise
+
+        else:
+            try:
+                downloadS3(bucket, self.confFileExt)
+            except exceptions.ClientError as e:
+                err = "Not Found"
+                if err not in e.response["Error"]["Message"]:
+                    raise
+
+            try:
+                resultsBucketPath = path.join(self.bucketKey, self.defaultResultsDirName)
+                resultsLocalPath = path.join(self.localS3Copy.name, self.defaultResultsDirName)
                 
-                except exceptions.ClientError as e:
-                    err = "Not Found"
-                    if err not in e.response["Error"]["Message"]:
-                        raise e
+                # Loop over ASV results folder and download everything.
+                # objectExt represents the file extension starting from the base resultsBucketPath
+                # For example: resultsBucketPath = "asvdb/results"
+                #            : objectKey = "asvdb/results/machine_name/results.json
+                #            : objectExt = "machine_name/results.json"
+                for bucketObj in bucket.objects.filter(Prefix=resultsBucketPath):
+                    objectExt = bucketObj.key.replace(resultsBucketPath + "/", "")
+                    if len(objectExt.split("/")) > 1:
+                        os.makedirs(path.join(resultsLocalPath, objectExt.split("/")[0]), exist_ok=True)
+                    bucket.download_file(bucketObj.key, path.join(resultsLocalPath, objectExt))
             
-            # Set all the internal locations to point to the downloaded files:
-            self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
-            self.resultsDirPath = path.join(self.localS3Copy.name, self.resultsDirName)
-            self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
+            except exceptions.ClientError as e:
+                err = "Not Found"
+                if err not in e.response["Error"]["Message"]:
+                    raise e
+        
+        # Set all the internal locations to point to the downloaded files:
+        self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
+        self.resultsDirPath = path.join(self.localS3Copy.name, self.resultsDirName)
+        self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
 
 
     def __uploadIfS3(self):
         def recursiveUpload(base, ext=""):
-            files = []
-            dirs = []
-            dirListing = os.listdir(path.join(base, ext))
-            for entry in dirListing:
-                if path.isdir(path.join(base, ext, entry)):
-                    dirs.append(entry)
-                else:
-                    files.append(entry)
+            root, dirs, files = next(os.walk(path.join(base, ext), topdown=True))
 
             # Upload files in this folder
             for name in files:
@@ -1106,8 +1101,6 @@ class ASVDb:
                     ext = path.join(ext, folder)
                     recursiveUpload(base, ext)
 
-        # The name of the directory can be accessed from self.localS3Copy like
-        # so: self.localS3Copy.name
         if self.__isS3URL(self.dbDir):
             recursiveUpload(self.localS3Copy.name)
 
@@ -1116,13 +1109,15 @@ class ASVDb:
                 
 
     def __removeLocalS3Copy(self):
-        if self.__isS3URL(self.dbDir):
-            self.localS3Copy.cleanup()
-            self.localS3Copy = None
+        if not self.__isS3URL(self.dbDir):
+            return
 
-            self.confFilePath = path.join(self.dbDir, self.confFileName)
-            self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
-            self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
+        self.localS3Copy.cleanup()
+        self.localS3Copy = None
+
+        self.confFilePath = path.join(self.dbDir, self.confFileName)
+        self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
+        self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
 
 
     ###########################################################################
