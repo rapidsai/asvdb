@@ -2,11 +2,16 @@ import json
 import os
 from os import path
 from pathlib import Path
+import tempfile
 import itertools
 import glob
 import time
 import random
 import stat
+from urllib.parse import urlparse
+
+from botocore import exceptions
+import boto3
 
 BenchmarkInfoKeys = set([
     "machineName",
@@ -151,17 +156,26 @@ class ASVDb:
         self.projectName = projectName
         self.commitUrl = commitUrl
 
+        self.machineFileExt = path.join(self.defaultResultsDirName, "*", self.machineFileName)
+        self.confFileExt = self.confFileName
         self.confFilePath = path.join(self.dbDir, self.confFileName)
         self.confVersion = self.defaultConfVersion
         self.resultsDirName = self.defaultResultsDirName
         self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
         self.htmlDirName = self.defaultHtmlDirName
+        self.benchmarksFileExt = path.join(self.defaultResultsDirName, self.benchmarksFileName)
         self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
 
         # Each ASVDb instance must have a unique lockfile name to identify other
         # instances that may be setting locks.
         self.lockfileName = "%s-%s-%s" % (self.lockfilePrefix, os.getpid(), time.time())
         self.lockfileTimeout = 5  # seconds
+
+        # S3-related attributes
+        if self.__isS3URL(dbDir):
+            self.s3Resource = boto3.resource("s3")
+            self.bucketName = urlparse(self.dbDir, allow_fragments=False).netloc
+            self.bucketKey = urlparse(self.dbDir, allow_fragments=False).path.lstrip('/')
 
         ########################################
         # Testing and debug members
@@ -234,8 +248,7 @@ class ASVDb:
         self.__ensureDbDirExists()
         try:
             self.__getLock(self.dbDir)
-            self.__downloadIfS3()
-
+            self.__downloadIfS3(bInfo=benchmarkInfo)
             if self.__waitForWrite():
                 self.__updateFilesForInfo(benchmarkInfo)
                 self.__updateFilesForResult(benchmarkInfo, benchmarkResult)
@@ -256,7 +269,7 @@ class ASVDb:
         self.__ensureDbDirExists()
         try:
             self.__getLock(self.dbDir)
-            self.__downloadIfS3()
+            self.__downloadIfS3(bInfo=benchmarkInfo)
 
             if self.__waitForWrite():
                 self.__updateFilesForInfo(benchmarkInfo)
@@ -297,7 +310,7 @@ class ASVDb:
         self.__assertDbDirExists()
         try:
             self.__getLock(self.dbDir)
-            self.__downloadIfS3()
+            self.__downloadIfS3(results=True)
             retList = self.__readResults(filterByInfoObjs=filterInfoObjList)
 
         finally:
@@ -471,7 +484,7 @@ class ASVDb:
         # FIXME: update for support S3 - this method should return True if
         # self.dbDir is a valid S3 URL or a valid path on disk.
         if self.__isS3URL(self.dbDir):
-            raise NotImplementedError
+            self.s3Resource.Bucket(self.bucketName).objects
         else:
             if not(path.isdir(self.dbDir)):
                 raise FileNotFoundError(f"{self.dbDir} does not exist or is "
@@ -484,7 +497,7 @@ class ASVDb:
         # if it does not exist).  For a local file path, create it if it does
         # not exist, like already being done below.
         if self.__isS3URL(self.dbDir):
-            raise NotImplementedError
+            self.s3Resource.Bucket(self.bucketName).objects
         else:
             if not(path.exists(self.dbDir)):
                 os.mkdir(self.dbDir)
@@ -788,7 +801,7 @@ class ASVDb:
     ###########################################################################
     def __getLock(self, dirPath):
         if self.__isS3URL(dirPath):
-            self.__getS3Lock(dirPath)
+            self.__getS3Lock()
         else:
             self.__getLocalFileLock(dirPath)
 
@@ -859,7 +872,7 @@ class ASVDb:
 
     def __releaseLock(self, dirPath):
         if self.__isS3URL(dirPath):
-            self.__releaseS3Lock(dirPath)
+            self.__releaseS3Lock()
         else:
             self.__releaseLocalFileLock(dirPath)
 
@@ -925,49 +938,186 @@ class ASVDb:
     ###########################################################################
     # S3 Locking methods
     ###########################################################################
-    def __getS3Lock(self, url):
-        # FIXME: write this
-        raise NotImplementedError
+    def __getS3Lock(self):
+        thisLockfile = path.join(self.bucketKey, self.lockfileName)
+        # FIXME: This shouldn't be needed? But if so, be smarter about
+        # preventing an infintite loop?
+        i = 0
+
+        # otherLockfileTimes is a tuple representing (<List of lockfiles>, <Length of List>)
+        otherLockfileTimes = ([], 0)
+        while i < 1000:
+            otherLockfileTimes = self.__updateS3LockfileTimes()
+            debugCounter = 0
+
+            while otherLockfileTimes[1] != 0:
+                if self.debugPrint:
+                    lockfileList = [] 
+                    for each in otherLockfileTimes[0]:
+                        lockfileList.append(each.key)
+
+                    print(f"This lock file will be {thisLockfile} but other "
+                          f"locks present: {lockfileList}, waiting to try to "
+                          "lock again...")
+                
+                time.sleep(1)
+                otherLockfileTimes = self.__updateS3LockfileTimes()
+
+            # All clear, create lock
+            if self.debugPrint:
+                print(f"All clear, setting lock {thisLockfile}")
+            self.s3Resource.Object(self.bucketName, thisLockfile).put()
+            
+            #Give S3 time to see the new lock
+            time.sleep(1)
+
+            # Check for a race condition where another lock could have been created
+            # while creating the lock for this instance.
+            otherLockfileTimes = self.__updateS3LockfileTimes()
+            
+            if otherLockfileTimes[1] != 0:
+                self.__releaseS3Lock()
+                randTime = (int(30 * random.random()) + 5) + random.random()
+                if self.debugPrint:
+                    print(f"Collision - waiting {randTime} seconds before "
+                          "trying to lock again.")
+                time.sleep(randTime)
+            else:
+                break
+
+            i += 1
+
+            
+    def __updateS3LockfileTimes(self):
+        # Find lockfiles in S3 Bucket
+        response = self.s3Resource.Bucket(self.bucketName).objects \
+            .filter(Prefix=path.join(self.bucketKey, self.lockfilePrefix))
+
+        length = 0
+        for lockfile in response:
+            length += 1
+            if self.lockfileName in lockfile.key:
+                lockfile.delete()
+                length -= 1
+
+        return (response, length)
 
 
-    def __releaseS3Lock(self, url):
-        # FIXME: write this
-        raise NotImplementedError
+    def __releaseS3Lock(self):
+        thisLockfile = path.join(self.bucketKey, self.lockfileName)
+        if self.debugPrint:
+            print(f"Removing lock {thisLockfile}")
+        self.s3Resource.Object(self.bucketName, thisLockfile).delete()
 
 
     ###########################################################################
     # S3 utilities
     ###########################################################################
-    def __downloadIfS3(self):
-        # self.localS3Copy = tempfile.TemporaryDirectory(...)
-        #
-        # Download bucket contents and unpack in self.localS3Copy.name
-        #
+    def __downloadIfS3(self, bInfo=BenchmarkInfo(), results=False):
+        def downloadS3(bucket, ext):
+            bucket.download_file(
+                path.join(self.bucketKey, ext),
+                path.join(self.localS3Copy.name, ext)
+            )
+
+        if not self.__isS3URL(self.dbDir):
+            return
+
+        self.localS3Copy = tempfile.TemporaryDirectory()
+        os.makedirs(path.join(self.localS3Copy.name, self.defaultResultsDirName))
+        bucket = self.s3Resource.Bucket(self.bucketName)
+        # If results isn't set, only download key files, else download key files and results
+        if results == False:
+            keyFileExts = [self.confFileExt, self.machineFileExt, self.benchmarksFileExt]
+            # Use Try/Except to catch file Not Found errors and continue, avoids additional API calls
+            for fileExt in keyFileExts:
+                try:
+                    downloadS3(bucket, fileExt)
+                except exceptions.ClientError as e:
+                    err = "Not Found"
+                    if err not in e.response["Error"]["Message"]:
+                        raise
+
+            # Download specific result file for updating results if BenchmarkInfo is sent
+            try:
+                if bInfo.machineName != "":
+                    commitHash, pyVer, cuVer, osType = bInfo.commitHash, bInfo.pythonVer, bInfo.cudaVer, bInfo.osType
+                    filename = f"{commitHash}-python{pyVer}-cuda{cuVer}-{osType}.json"
+                    os.makedirs(path.join(self.localS3Copy.name, self.defaultResultsDirName, bInfo.machineName), exist_ok=True)
+                    resultFileExt = path.join(self.defaultResultsDirName, bInfo.machineName, filename)
+                    downloadS3(bucket, resultFileExt)
+
+            except exceptions.ClientError as e:
+                err = "Not Found"
+                if err not in e.response["Error"]["Message"]:
+                    raise
+
+        else:
+            try:
+                downloadS3(bucket, self.confFileExt)
+            except exceptions.ClientError as e:
+                err = "Not Found"
+                if err not in e.response["Error"]["Message"]:
+                    raise
+
+            try:
+                resultsBucketPath = path.join(self.bucketKey, self.defaultResultsDirName)
+                resultsLocalPath = path.join(self.localS3Copy.name, self.defaultResultsDirName)
+                
+                # Loop over ASV results folder and download everything.
+                # objectExt represents the file extension starting from the base resultsBucketPath
+                # For example: resultsBucketPath = "asvdb/results"
+                #            : objectKey = "asvdb/results/machine_name/results.json
+                #            : objectExt = "machine_name/results.json"
+                for bucketObj in bucket.objects.filter(Prefix=resultsBucketPath):
+                    objectExt = bucketObj.key.replace(resultsBucketPath + "/", "")
+                    if len(objectExt.split("/")) > 1:
+                        os.makedirs(path.join(resultsLocalPath, objectExt.split("/")[0]), exist_ok=True)
+                    bucket.download_file(bucketObj.key, path.join(resultsLocalPath, objectExt))
+            
+            except exceptions.ClientError as e:
+                err = "Not Found"
+                if err not in e.response["Error"]["Message"]:
+                    raise e
+        
         # Set all the internal locations to point to the downloaded files:
-        # self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
-        # self.resultsDirPath = path.join(self.localS3Copy.name, self.resultsDirName)
-        # self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
-        return
+        self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
+        self.resultsDirPath = path.join(self.localS3Copy.name, self.resultsDirName)
+        self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
 
 
     def __uploadIfS3(self):
-        # The name of the directory can be accessed from self.localS3Copy like
-        # so: self.localS3Copy.name
-        # Tar that up and upload to the S3 URL (self.dbDir)
-        return
+        def recursiveUpload(base, ext=""):
+            root, dirs, files = next(os.walk(path.join(base, ext), topdown=True))
 
+            # Upload files in this folder
+            for name in files:
+                self.s3Resource.Bucket(self.bucketName) \
+                    .upload_file(path.join(base, ext, name), path.join(self.bucketKey, ext, name))
+            
+            # Call upload again for each folder
+            if len(dirs) != 0:
+                for folder in dirs:
+                    ext = path.join(ext, folder)
+                    recursiveUpload(base, ext)
+
+        if self.__isS3URL(self.dbDir):
+            recursiveUpload(self.localS3Copy.name)
+
+        # Give S3 time to see the new uploads before releasing lock
+        time.sleep(1)
+                
 
     def __removeLocalS3Copy(self):
-        # Just do this:
-        # self.localS3Copy.cleanup()
-        # self.localS3Copy = None
-        #
-        # Then set all the internal locations back:
-        #
-        # self.confFilePath = path.join(self.dbDir, self.confFileName)
-        # self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
-        # self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
-        return
+        if not self.__isS3URL(self.dbDir):
+            return
+
+        self.localS3Copy.cleanup()
+        self.localS3Copy = None
+
+        self.confFilePath = path.join(self.dbDir, self.confFileName)
+        self.resultsDirPath = path.join(self.dbDir, self.resultsDirName)
+        self.benchmarksFilePath = path.join(self.resultsDirPath, self.benchmarksFileName)
 
 
     ###########################################################################
@@ -983,7 +1133,9 @@ class ASVDb:
         """
         Returns True if url is a S3 URL, False otherwise.
         """
-        # FIXME: write this
+        if url.startswith("s3:"):
+            return True
+
         return False
 
 
