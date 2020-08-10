@@ -18,6 +18,8 @@ requirements:
     build:
         - python
         - setuptools
+        - boto3
+        - botocore
 
     run:
         - python
