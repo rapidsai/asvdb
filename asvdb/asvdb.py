@@ -1103,9 +1103,8 @@ class ASVDb:
 
         if self.__isS3URL(self.dbDir):
             recursiveUpload(self.localS3Copy.name)
-
-        # Give S3 time to see the new uploads before releasing lock
-        time.sleep(1)
+            # Give S3 time to see the new uploads before releasing lock
+            time.sleep(1)
                 
 
     def __removeLocalS3Copy(self):
