@@ -1,27 +1,25 @@
 {% set version = load_setup_py_data().get('version') %}
-{% set git_revision_count=environ.get('GIT_DESCRIBE_NUMBER', 0) %}
 
 package:
     name: asvdb
     version: {{ version }}
 
 source:
-    #git_url: https://github.com/rapidsai/asvdb.git
     path: ..
 
 build:
-    number: {{ git_revision_count }}
-    script: python setup.py install
+    string: {{ GIT_DESCRIBE_HASH }}_{{ GIT_DESCRIBE_NUMBER }}
+    script: {{ PYTHON }} -m pip install . --no-deps
     noarch: python
 
 requirements:
-    build:
+    host:
         - python
-        - setuptools
 
     run:
         - python
-
+        - boto3
+        - botocore
 test:
     imports:
         - asvdb
