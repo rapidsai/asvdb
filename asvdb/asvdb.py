@@ -687,6 +687,21 @@ class ASVDb:
         existingParamValuesList = resultDict.setdefault("params", [])
         existingResultValueList = resultDict.setdefault("result", [])
 
+        # ASV uses the cartesian product of the param values for looking up the
+        # result for a particular combination of param values.  For example:
+        # "params": [["a"], ["b", "c"], ["d", "e"]] results in: [("a", "b",
+        # "d"), ("a", "b", "e"), ("a", "c", "d"), ("a", "c", "e")] and each
+        # combination of param values has a result, with the results for the
+        # corresponding param values in the same order.  If a result for a set
+        # of param values DNE, use None.
+
+        # store existing results in map based on cartesian product of all
+        # current params.
+        paramsCartProd = list(itertools.product(*existingParamValuesList))
+        # Assume there is an equal number of results for cartProd values
+        # (some will be None)
+        paramsResultMap = dict(zip(paramsCartProd, existingResultValueList))
+
         # FIXME: dont assume these are ordered properly (ie. the same way as
         # defined in benchmarks.json)
         newResultParamValues = tuple(v for (_, v) in benchmarkResult.argNameValuePairs)
@@ -703,21 +718,6 @@ class ASVDb:
             for i in range(numExistingParamValues):
                 if newResultParamValues[i] not in existingParamValuesList[i]:
                     existingParamValuesList[i].append(newResultParamValues[i])
-
-            # ASV uses the cartesian product of the param values for looking up
-            # the result for a particular combination of param values.  For
-            # example: "params": [["a"], ["b", "c"], ["d", "e"]] results in:
-            # [("a", "b", "d"), ("a", "b", "e"), ("a", "c", "d"), ("a", "c",
-            # "e")] and each combination of param values has a result, with the
-            # results for the corresponding param values in the same order.  If
-            # a result for a set of param values DNE, use None.
-
-            # store existing results in map based on cartesian product of all
-            # current params.
-            paramsCartProd = list(itertools.product(*existingParamValuesList))
-            # Assume there is an equal number of results for cartProd values
-            # (some will be None)
-            paramsResultMap = dict(zip(paramsCartProd, existingResultValueList))
 
             # Add the new result
             paramsResultMap[newResultParamValues] = benchmarkResult.result
@@ -952,14 +952,14 @@ class ASVDb:
 
             while otherLockfileTimes[1] != 0:
                 if self.debugPrint:
-                    lockfileList = [] 
+                    lockfileList = []
                     for each in otherLockfileTimes[0]:
                         lockfileList.append(each.key)
 
                     print(f"This lock file will be {thisLockfile} but other "
                           f"locks present: {lockfileList}, waiting to try to "
                           "lock again...")
-                
+
                 time.sleep(1)
                 otherLockfileTimes = self.__updateS3LockfileTimes()
 
@@ -967,14 +967,14 @@ class ASVDb:
             if self.debugPrint:
                 print(f"All clear, setting lock {thisLockfile}")
             self.s3Resource.Object(self.bucketName, thisLockfile).put()
-            
+
             #Give S3 time to see the new lock
             time.sleep(1)
 
             # Check for a race condition where another lock could have been created
             # while creating the lock for this instance.
             otherLockfileTimes = self.__updateS3LockfileTimes()
-            
+
             if otherLockfileTimes[1] != 0:
                 self.__releaseS3Lock()
                 randTime = (int(30 * random.random()) + 5) + random.random()
@@ -987,7 +987,7 @@ class ASVDb:
 
             i += 1
 
-            
+
     def __updateS3LockfileTimes(self):
         # Find lockfiles in S3 Bucket
         response = self.s3Resource.Bucket(self.bucketName).objects \
@@ -1063,7 +1063,7 @@ class ASVDb:
             try:
                 resultsBucketPath = path.join(self.bucketKey, self.defaultResultsDirName)
                 resultsLocalPath = path.join(self.localS3Copy.name, self.defaultResultsDirName)
-                
+
                 # Loop over ASV results folder and download everything.
                 # objectExt represents the file extension starting from the base resultsBucketPath
                 # For example: resultsBucketPath = "asvdb/results"
@@ -1074,12 +1074,12 @@ class ASVDb:
                     if len(objectExt.split("/")) > 1:
                         os.makedirs(path.join(resultsLocalPath, objectExt.split("/")[0]), exist_ok=True)
                     bucket.download_file(bucketObj.key, path.join(resultsLocalPath, objectExt))
-            
+
             except exceptions.ClientError as e:
                 err = "Not Found"
                 if err not in e.response["Error"]["Message"]:
                     raise e
-        
+
         # Set all the internal locations to point to the downloaded files:
         self.confFilePath = path.join(self.localS3Copy.name, self.confFileName)
         self.resultsDirPath = path.join(self.localS3Copy.name, self.resultsDirName)
@@ -1094,7 +1094,7 @@ class ASVDb:
             for name in files:
                 self.s3Resource.Bucket(self.bucketName) \
                     .upload_file(path.join(base, ext, name), path.join(self.bucketKey, ext, name))
-            
+
             # Call upload again for each folder
             if len(dirs) != 0:
                 for folder in dirs:
@@ -1105,7 +1105,7 @@ class ASVDb:
             recursiveUpload(self.localS3Copy.name)
             # Give S3 time to see the new uploads before releasing lock
             time.sleep(1)
-                
+
 
     def __removeLocalS3Copy(self):
         if not self.__isS3URL(self.dbDir):
