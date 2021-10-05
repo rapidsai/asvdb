@@ -405,8 +405,10 @@ class ASVDb:
                     if infoOnly:
                         machineResults.append(bi)
                     else:
-                        # FIXME: if results not in rDict, throw better error
-                        resultsDict = rDict["results"]
+                        resultsDict = rDict.get("results",{})
+                        if not resultsDict:
+                            print("ERROR: No results found!")
+                            #TODO: replace print statements with logging
                         # Populate the list of BenchmarkResult objs associated
                         # with the BenchmarkInfo obj
                         resultObjs = []
@@ -420,15 +422,17 @@ class ASVDb:
                                       f"file: {resultsFile.as_posix()} "
                                       f"invalid name\"{benchmarkName}\", skipping.")
                                 continue
-
-                            benchmarkSpec = bDict[benchmarkName]
+                            benchmarkSpec = bDict.get(benchmarkName)
                             # benchmarkResults is the entry in this particular
                             # result file for this benchmark
                             benchmarkResults = resultsDict[benchmarkName]
+                            if not benchmarkResults or not(hasattr(benchmarkResults,'__iter__')):
+                                benchmarkResults={}
+                                print( f"WARNING: benchmarkResults not found for {benchmarkName}")
 
-                            paramNames = benchmarkSpec["param_names"]
-                            paramValues = benchmarkResults["params"]
-                            results = benchmarkResults["result"]
+                            paramNames = benchmarkSpec.get("param_names",[])
+                            paramValues = benchmarkResults.get("params",[])
+                            results = benchmarkResults.get("result",[])
                             # Inverse of the write operation described in
                             # self.__updateResultJson()
                             paramsCartProd = list(itertools.product(*paramValues))
@@ -773,7 +777,7 @@ class ASVDb:
         either reading in the existing file or returning {}
         """
         if path.exists(jsonFile):
-            with open(jsonFile) as fobj:
+            with open(jsonFile, 'rb') as fobj:
                 # FIXME: ideally this could use flock(), but some situations do
                 # not allow grabbing a file lock (NFS?)
                 # fcntl.flock(fobj, fcntl.LOCK_EX)
