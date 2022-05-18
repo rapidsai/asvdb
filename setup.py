@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name="asvdb",
-      version="0.4.1",
+      version="0.4.2",
       packages=["asvdb"],
       install_requires=["botocore", "boto3"],
       description='ASV "database" interface',

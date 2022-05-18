@@ -107,6 +107,69 @@ def test_addResults():
     asvDir.cleanup()
 
 
+def test_addResultWithRandomParamOrder():
+    """
+    Ensures that parameterized results can be added in any order (instead of
+    assuming an order that matches the order of the computed cartesian product
+    of the params)
+    """
+    from asvdb import ASVDb, BenchmarkInfo, BenchmarkResult
+
+    asvDir = tempfile.TemporaryDirectory()
+    dbDir = asvDir.name
+    db = ASVDb(dbDir, repo, [branch])
+    bInfo = BenchmarkInfo(machineName=machineName,
+                          cudaVer="9.2",
+                          osType="linux",
+                          pythonVer="3.6",
+                          commitHash=commitHash,
+                          commitTime=commitTime,
+                          branch=branch,
+                          gpuType="n/a",
+                          cpuType="x86_64",
+                          arch="my_arch",
+                          ram="123456")
+
+    # Results are NOT ordered the same as the expected computed cartesian
+    # product order (10,1),(10,2),(10,4)...
+    bResultList = [
+        {'funcName': 'bfs', 'result': 0.012093378696590662,
+         'argNameValuePairs': [('scale', 10), ('ngpus', 1)]},
+        {'funcName': 'bfs', 'result': 0.01159052224829793,
+         'argNameValuePairs': [('scale', 11), ('ngpus', 1)]},
+        {'funcName': 'bfs', 'result': 0.19485003012232482,
+         'argNameValuePairs': [('scale', 10), ('ngpus', 2)]},
+        {'funcName': 'bfs', 'result': 0.18941782205365598,
+         'argNameValuePairs': [('scale', 11), ('ngpus', 2)]},
+        {'funcName': 'bfs', 'result': 0.22938291303580627,
+         'argNameValuePairs': [('scale', 10), ('ngpus', 4)]},
+        {'funcName': 'bfs', 'result': 0.3148591748904437,
+         'argNameValuePairs': [('scale', 11), ('ngpus', 8)]},
+        {'funcName': 'bfs', 'result': 0.30646290094591677,
+         'argNameValuePairs': [('scale', 10), ('ngpus', 8)]},
+        {'funcName': 'bfs', 'result': 0.23198354698251933,
+         'argNameValuePairs': [('scale', 11), ('ngpus', 4)]},
+    ]
+
+    for bResult_dic in bResultList:
+        bResult = BenchmarkResult(**bResult_dic)
+        db.addResult(bInfo, bResult)
+
+    # read back in and check
+    dbCheck = ASVDb(dbDir, repo, [branch])
+    retList = dbCheck.getResults()
+    assert len(retList) == 1
+    assert retList[0][0] == bInfo
+    assert len(retList[0][1]) == len(bResultList)
+
+    # Ensure each result is present
+    for bResult_dic in bResultList:
+        bResult = BenchmarkResult(**bResult_dic)
+        assert bResult in retList[0][1]
+
+    asvDir.cleanup()
+
+
 def test_writeWithoutRepoSet():
     from asvdb import ASVDb
 
@@ -462,4 +525,3 @@ def test_getFilteredResults():
     assert brList1[0][0] != brList1[1][0]
     assert len(brList1[0][1]) == len(algoRunResults)
     assert len(brList1[1][1]) == len(algoRunResults)
-    
